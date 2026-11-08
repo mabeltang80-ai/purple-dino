@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Purple Runner</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #f6f1fb; font-family: monospace; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
+  canvas { width: min(95vw, 800px); background: #fff; border: 2px solid #7b2fbe; border-radius: 8px; touch-action: manipulation; }
+  p { color: #5a2a8a; margin: 0; font-size: 14px; text-align: center; }
+</style>
+</head>
+<body>
+<canvas id="c" width="800" height="250"></canvas>
+<p>Space / ↑ / tap = jump &nbsp; ↓ = duck &nbsp; Space / tap to restart</p>
+<script>
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const W = cv.width, H = cv.height, GROUND = 200;
+const PURPLE = '#7b2fbe', DARK = '#4e1a80', BLUE = '#1e6fe0', DBLUE = '#14489a';
+
+let best = 0;
+try { best = +localStorage.getItem('purpleRunnerBest') || 0; } catch (e) {}
+
+let state, p, obstacles, speed, score, frame, spawnIn, clouds, groundX;
+
+function reset() {
+  state = 'ready';
+  p = { x: 60, y: GROUND, vy: 0, ducking: false, w: 40, h: 44 };
+  obstacles = []; speed = 6; score = 0; frame = 0; spawnIn = 60; groundX = 0;
+  clouds = [{ x: 200, y: 50 }, { x: 520, y: 80 }, { x: 740, y: 40 }];
+}
+reset();
+
+function jump() {
+  if (state === 'ready') state = 'play';
+  if (state === 'over') { reset(); state = 'play'; return; }
+  if (p.y >= GROUND) { p.vy = -12.5; }
+}
+
+addEventListener('keydown', e => {
+  if (['Space', 'ArrowUp'].includes(e.code)) { e.preventDefault(); jump(); }
+  if (e.code === 'ArrowDown') { e.preventDefault(); p.ducking = true; if (p.y < GROUND) p.vy += 3; }
+});
+addEventListener('keyup', e => { if (e.code === 'ArrowDown') p.ducking = false; });
+cv.addEventListener('pointerdown', e => { e.preventDefault(); jump(); });
+
+function spawn() {
+  const r = Math.random();
+  if (r < 0.25 && score > 300) {
+    const heights = [GROUND - 22, GROUND - 50, GROUND - 80];
+    const y = heights[Math.floor(Math.random() * 3)];
+    obstacles.push({ type: 'bug', x: W + 20, y, w: 40, h: 22 });
+  } else {
+    const n = 1 + Math.floor(Math.random() * 3);
+    obstacles.push({ type: 'cactus', x: W + 20, w: n * 22, h: 36 + Math.random() * 24, n });
+  }
+  spawnIn = 50 + Math.random() * 60 + (14 - speed) * 4;
+}
+
+function hitbox(o) {
+  if (o.type === 'cactus') return { x: o.x + 3, y: GROUND - o.h + 3, w: o.w - 6, h: o.h - 3 };
+  return { x: o.x + 5, y: o.y + 4, w: o.w - 10, h: o.h - 8 };
+}
+function playerBox() {
+  const h = p.ducking && p.y >= GROUND ? 26 : p.h, w = p.ducking && p.y >= GROUND ? 50 : p.w;
+  return { x: p.x + 4, y: p.y - h + 4, w: w - 8, h: h - 6 };
+}
+function overlap(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
+
+function update() {
+  frame++;
+  groundX = (groundX - speed) % 40;
+  clouds.forEach(c => { c.x -= speed * 0.2; if (c.x < -60) { c.x = W + 40; c.y = 30 + Math.random() * 60; } });
+  if (state !== 'play') return;
+
+  p.vy += 0.65; p.y += p.vy;
+  if (p.y >= GROUND) { p.y = GROUND; p.vy = 0; }
+
+  speed = Math.min(14, 6 + score / 400);
+  score += speed * 0.1;
+
+  if (--spawnIn <= 0) spawn();
+  obstacles.forEach(o => o.x -= speed * (o.type === 'bug' ? 1.2 : 1));
+  obstacles = obstacles.filter(o => o.x + o.w > -10);
+
+  const pb = playerBox();
+  if (obstacles.some(o => overlap(pb, hitbox(o)))) {
+    state = 'over';
+    if (score > best) { best = score; try { localStorage.setItem('purpleRunnerBest', Math.floor(best)); } catch (e) {} }
+  }
+}
+
+function drawPlayer() {
+  const duck = p.ducking && p.y >= GROUND;
+  const x = p.x, base = p.y, step = Math.floor(frame / 5) % 2;
+  ctx.fillStyle = PURPLE;
+  if (duck) {
+    ctx.fillRect(x, base - 26, 50, 22);               // body
+    ctx.fillRect(x + 36, base - 30, 14, 14);          // head
+    ctx.fillStyle = '#fff'; ctx.fillRect(x + 42, base - 27, 5, 5);
+    ctx.fillStyle = DARK; ctx.fillRect(x + 44, base - 26, 2, 3);
+    ctx.fillStyle = DARK;
+    ctx.fillRect(x + 8 + step * 16, base - 4, 8, 4);
+    ctx.fillRect(x + 26 - step * 16, base - 4, 8, 4);
+  } else {
+    ctx.fillRect(x, base - 36, 36, 30);               // body
+    ctx.fillRect(x + 14, base - 46, 26, 16);          // head
+    ctx.fillStyle = DARK;                              // spikes on back
+    ctx.fillRect(x + 4, base - 42, 6, 6); ctx.fillRect(x + 14, base - 40, 4, 4);
+    ctx.fillStyle = '#fff'; ctx.fillRect(x + 28, base - 42, 7, 7);
+    ctx.fillStyle = DARK; ctx.fillRect(x + 31, base - 40, 3, 4);
+    ctx.fillRect(x + 20, base - 33, 10, 2);           // smile line
+    const air = p.y < GROUND;
+    ctx.fillRect(x + 6, base - 6, 8, 6 + (air ? 0 : step * -3));
+    ctx.fillRect(x + 22, base - 6, 8, 6 + (air ? 0 : (1 - step) * -3));
+  }
+}
+
+function drawCactus(o) {
+  ctx.fillStyle = BLUE;
+  for (let i = 0; i < o.n; i++) {
+    const cx = o.x + i * 22, h = o.h - (i % 2) * 10;
+    ctx.fillRect(cx + 7, GROUND - h, 9, h);                   // trunk
+    ctx.fillRect(cx, GROUND - h * 0.65, 7, 6);                 // left arm
+    ctx.fillRect(cx, GROUND - h * 0.65 - 10, 6, 10);
+    ctx.fillRect(cx + 16, GROUND - h * 0.5, 7, 6);             // right arm
+    ctx.fillRect(cx + 17, GROUND - h * 0.5 - 12, 6, 12);
+    ctx.fillStyle = DBLUE; ctx.fillRect(cx + 11, GROUND - h + 2, 2, h - 4); ctx.fillStyle = BLUE;
+  }
+}
+
+function drawBug(o) {
+  const flap = Math.floor(frame / 8) % 2;
+  ctx.fillStyle = DBLUE; ctx.fillRect(o.x + 8, o.y + 8, 26, 10);
+  ctx.fillStyle = BLUE;  ctx.fillRect(o.x + 30, o.y + 6, 10, 10);
+  ctx.fillStyle = '#fff'; ctx.fillRect(o.x + 34, o.y + 8, 3, 3);
+  ctx.fillStyle = BLUE;
+  if (flap) ctx.fillRect(o.x + 12, o.y, 14, 8); else ctx.fillRect(o.x + 12, o.y + 16, 14, 8);
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#e4d3f5';
+  clouds.forEach(c => { ctx.fillRect(c.x, c.y, 46, 10); ctx.fillRect(c.x + 10, c.y - 6, 26, 8); });
+
+  ctx.fillStyle = DARK; ctx.fillRect(0, GROUND, W, 2);
+  ctx.fillStyle = '#b79bd6';
+  for (let x = groundX; x < W; x += 40) { ctx.fillRect(x, GROUND + 8, 10, 2); ctx.fillRect(x + 22, GROUND + 16, 5, 2); }
+
+  obstacles.forEach(o => o.type === 'cactus' ? drawCactus(o) : drawBug(o));
+  drawPlayer();
+
+  ctx.fillStyle = DARK; ctx.font = '16px monospace'; ctx.textAlign = 'right';
+  ctx.fillText('HI ' + String(Math.floor(best)).padStart(5, '0') + '  ' + String(Math.floor(score)).padStart(5, '0'), W - 16, 28);
+
+  ctx.textAlign = 'center';
+  if (state === 'ready') { ctx.font = '20px monospace'; ctx.fillText('Press Space or tap to start', W / 2, 110); }
+  if (state === 'over') {
+    ctx.font = '28px monospace'; ctx.fillText('G A M E   O V E R', W / 2, 100);
+    ctx.font = '16px monospace'; ctx.fillText('Space or tap to restart', W / 2, 130);
+  }
+}
+
+(function loop() { update(); draw(); requestAnimationFrame(loop); })();
+</script>
+</body>
+</html>
